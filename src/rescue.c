@@ -10,13 +10,6 @@
 #include "resources.c"
 #endif
 
-#define BUFFER_SIZE 128
-#define DEFAULT_IDENTIFIER "rescue"
-#define PLACEHOLDER "__RESCUE"
-#define LINE_WIDTH 80
-#define STRING_LENGTH (1024)
-#define MAX_PATH 2048
-
 #if defined(__OS2__) || defined(__WINDOWS__) || defined(WIN32) || defined(WIN64) || defined(_MSC_VER)
 #include <windows.h>
 #define PATH_DELIMITER '\\'
@@ -30,6 +23,14 @@
 #define PWD(B, L) getcwd(B, L)
 #define ABSOLUTE_PATH(R, A, L) realpath(R, A)
 #endif
+
+#define BUFFER_SIZE 128
+#define DEFAULT_IDENTIFIER "rescue"
+#define PLACEHOLDER "__RESCUE"
+#define LINE_WIDTH 80
+#define STRING_LENGTH (1024)
+#undef MAX_PATH
+#define MAX_PATH 2048
 
 #ifdef RESCUE_BOOTSTRAP
 #define BOOTSTRAP_WRITE(R, C, D) {char* path; path_join(RESCUE_BOOTSTRAP, R, &path); write_file(path, C, D); free(path);}
@@ -57,7 +58,7 @@ typedef struct resource_data {
     int metadata;
 } resource_data;
 
-typedef int (*data_callback)(const void* buffer, int len, void *user);
+typedef int (*data_callback)(const void* buffer, size_t len, void *user);
 
 int path_join(const char* root, const char* path, char** out) {
 
@@ -85,13 +86,13 @@ int path_join(const char* root, const char* path, char** out) {
 }
 
 int path_split(const char* path, char** parent, char** name) {
-    int i = 0;
+    size_t i;
     size_t len = strlen(path);
 
     if (len < 2)
         return 0;
 
-    for (i = len - 1; i >= 0; i--)
+    for (i = len - 1; 1; i--)
     {
         if (IS_PATH_DELIMITER(path[i]))
         {
@@ -99,6 +100,8 @@ int path_split(const char* path, char** parent, char** name) {
             if (name) { *name = (char*) malloc(sizeof(char) * (len - i)); memcpy(*name, &(path[i + 1]), len - i - 1); (*name)[len - i - 1] = 0; }
             return 1;
         }
+
+        if(i == 0) break;
     }
 
     if (name)
@@ -205,7 +208,7 @@ resource_data generate_resource(const char* filename, FILE* out)
     return result;
 }
 
-int source_callback(const void* data, int len, void *user)
+int source_callback(const void* data, size_t len, void *user)
 {
     source_data* env = (source_data*) user;
     const char* buffer = (const char*) data;
@@ -277,13 +280,12 @@ int help()
     fprintf(stderr, " -h\t\tPrint help.\n");
     fprintf(stderr, " -v\t\tBe verbose.\n");
     fprintf(stderr, " -o <path>\tOutput the resulting C source to the given file instead of printing it to standard output.\n\t\tThis flag can only be used before any source file is provided.\n");
-    // NOT IMPLEMENTED YET!
-    //fprintf(stderr, " -r <path>\tSet the root direcotry for the following files.\n\t\tThe embedded names of the files will be relative to this path.\n");
+    fprintf(stderr, " -r <path>\tSet the root directory for the following files.\n\t\tThe embedded names of the files will be relative to this path.\n");
     fprintf(stderr, " -a\t\tSet the naming mode of the files to absolute name.\n\t\tThe embedded names of the files will include the full absolute name of the file.\n");
     fprintf(stderr, " -b\t\tSet the naming mode of the files to file basename.\n\t\tThe embedded names of the files will include only the basename of the file.\n");
     fprintf(stderr, " -p <prefix>\tUse the following alphanumerical string as a prefix for the functions and\n\t\tvariables in the generated file (instead of `rescue`).\n\t\tThis flag can only be used before any source file is provided.\n");
     fprintf(stderr, "\n");
-
+    return 0;
 }
 
 #define NAMING_MODE_ABSOLUTE 0
@@ -440,7 +442,13 @@ int main(int argc, char** argv)
                 }
                 case NAMING_MODE_RELATIVE:
                 {
-                    //TODO: not implemented yet!
+                    char * basename = NULL;
+                    path_split(argv[i], NULL, &basename);
+                    char * relpath = (char *)malloc(sizeof(char) * strlen(basename) + strlen(argv[i]) + 1);
+                    // sprintf(relpath, "%s%s%s", root, PATH_DELIMITER == '\\' ? "\\\\" : "/", basename);
+                    sprintf(relpath, "%s%c%s", root, '/', basename); // universal path delimiter
+                    resource_names[processed_files] = relpath;
+                    free(basename);
                     break;
                 }
                 case NAMING_MODE_ABSOLUTE:
@@ -481,12 +489,12 @@ int main(int argc, char** argv)
 
         fprintf(out, "static const size_t %s_resource_length_inflated[] = {\n", identifier);
         for (f = 0; f < processed_files; f++)
-            fprintf(out, "%ld,", resource_length_inflated[f]);
+            fprintf(out, "%zu,", resource_length_inflated[f]);
         fprintf(out, " 0};\n");
 
         fprintf(out, "static const size_t %s_resource_length_deflated[] = {\n", identifier);
         for (f = 0; f < processed_files; f++)
-            fprintf(out, "%ld,", resource_length_deflated[f]);
+            fprintf(out, "%zu,", resource_length_deflated[f]);
         fprintf(out, " 0};\n");
 
         free(resource_length_inflated);

@@ -15,6 +15,7 @@ You can also use the following flags to modify the output:
  * `-h` - Print help.
  * `-v` - Be verbose.
  * `-o <path>` - Output the resulting C source to the given file instead of printing it to standard output. This flag can only be used before any source file is provided.
+ * `-r` - Set the root directory for the following files. The embedded names of the files will be relative to this path.
  * `-a` - Set the naming mode of the files to absolute name. The embedded names of the files will include the full absolute name of the file.
  * `-b` - Set the naming mode of the files to file basename. The embedded names of the files will include only the basename of the file.
  * `-p <prefix>` - Use the following alphanumerical string as a prefix for the functions and variables in the generated file (instead of `rescue`). This flag can only be used before any source file is provided.

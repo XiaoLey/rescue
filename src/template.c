@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-typedef int (*rescue_data_callback)(const void* buffer, int len, void *user);
+typedef int (*rescue_data_callback)(const void* buffer, size_t len, void *user);
 
 int __RESCUE_has_resource(const char* name);
 
@@ -29,11 +29,18 @@ int __RESCUE_get_length(const char* name, size_t* compressed, size_t* uncompress
 #define __RESCUE_META_COMPRESSION 1
 #define __RESCUE_CHUNK_SIZE 32*1024
 
-typedef int (*rescue_data_callback)(const void* buffer, int len, void *user);
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-typedef struct rescue_copy_state {void* buffer; int size; int position; } rescue_copy_state;
+typedef int (*rescue_data_callback)(const void* buffer, size_t len, void *user);
 
-int __RESCUE_copy_callback(const void* buffer, int len, void *user)
+#ifndef RESCUE_COPY_STATE_DEFINED_
+#define RESCUE_COPY_STATE_DEFINED_
+typedef struct rescue_copy_state {void* buffer; size_t size; size_t position; } rescue_copy_state;
+#endif //! RESCUE_COPY_STATE_DEFINED_
+
+int __RESCUE_copy_callback(const void* buffer, size_t len, void *user)
 {
     rescue_copy_state* state = (rescue_copy_state *) user;
 
