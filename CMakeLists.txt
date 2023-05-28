@@ -1,12 +1,17 @@
+cmake_minimum_required(VERSION 3.0.2 FATAL_ERROR)
 
-PROJECT(rescue)
-CMAKE_MINIMUM_REQUIRED(VERSION 2.8 FATAL_ERROR)
-GET_FILENAME_COMPONENT(PROJECT_ROOT . ABSOLUTE)
-GET_FILENAME_COMPONENT(BUILD_ROOT ${CMAKE_CURRENT_BINARY_DIR} ABSOLUTE)
-SET(EXECUTABLE_OUTPUT_PATH ${CMAKE_CURRENT_BINARY_DIR})
+project(rescue)
 
-ADD_EXECUTABLE(bootstrap src/rescue.c src/deflate.c)
-target_compile_definitions(bootstrap PUBLIC -DRESCUE_BOOTSTRAP="${PROJECT_ROOT}/src/")
+if (${CMAKE_PROJECT_NAME} STREQUAL ${PROJECT_NAME})
+    option(rescue_INSTALL "Generate the install target" ON)
+else ()
+    option(rescue_INSTALL "Generate the install target" OFF)
+endif ()
+
+get_filename_component(PROJECT_ROOT . ABSOLUTE)
+
+add_executable(bootstrap EXCLUDE_FROM_ALL src/rescue.c src/deflate.c)
+target_compile_definitions(bootstrap PUBLIC "-DRESCUE_BOOTSTRAP=\"${PROJECT_ROOT}/src/\"")
 
 add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/resources.c
                    COMMAND bootstrap ARGS -o ${CMAKE_CURRENT_BINARY_DIR}/resources.c ${PROJECT_ROOT}/src/inflate.c ${PROJECT_ROOT}/src/template.c
@@ -14,7 +19,9 @@ add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/resources.c
                    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
                    COMMENT "Generating ${CMAKE_CURRENT_BINARY_DIR}/resources.c file")
 
-ADD_EXECUTABLE(rescue src/rescue.c src/deflate.c ${CMAKE_CURRENT_BINARY_DIR}/resources.c)
+add_executable(rescue src/rescue.c src/deflate.c ${CMAKE_CURRENT_BINARY_DIR}/resources.c)
 target_include_directories(rescue PUBLIC ${CMAKE_CURRENT_BINARY_DIR})
 
-INSTALL(TARGETS rescue RUNTIME DESTINATION bin)
+if (rescue_INSTALL)
+    install(TARGETS rescue RUNTIME DESTINATION bin)
+endif ()
