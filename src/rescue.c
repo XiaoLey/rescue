@@ -29,6 +29,7 @@
 #define PLACEHOLDER "__RESCUE"
 #define LINE_WIDTH 80
 #define STRING_LENGTH (1024)
+#define SIZE_THRESHOLD 1024
 #undef MAX_PATH
 #define MAX_PATH 2048
 
@@ -38,11 +39,17 @@
 
 #define PING {fprintf(stderr, "%s(%d): PING\n", __FILE__, __LINE__); }
 
+typedef struct buffer_node {
+    char* buffer;
+    size_t size;
+    struct buffer_node* next;
+} buffer_node;
+
 typedef struct compression_data {
-    FILE* out;
+    buffer_node *out;
     int line;
     int segment;
-    int total;
+    size_t total;
 } compression_data;
 
 typedef struct source_data {
@@ -59,6 +66,38 @@ typedef struct resource_data {
 } resource_data;
 
 typedef int (*data_callback)(const void* buffer, size_t len, void *user);
+
+buffer_node *buffer_node_head_create()
+{
+    buffer_node *head = (buffer_node*)malloc(sizeof(buffer_node));
+    if(!head) return NULL;
+    head->buffer = NULL;
+    head->size = 0;
+    head->next = head;
+    return head;
+}
+
+void buffer_node_destroy(buffer_node *head)
+{
+    while (head->next != head) {
+        buffer_node *tmp = head->next;
+        head->next = tmp->next;
+        free(tmp->buffer);
+        free(tmp);
+    }
+
+    free(head);
+}
+
+buffer_node *buffer_node_append(buffer_node *prev)
+{
+    buffer_node *new_node = (buffer_node*)malloc(sizeof(buffer_node));
+    new_node->buffer = NULL;
+    new_node->size = 0;
+    new_node->next = prev->next;
+    prev->next = new_node;
+    return new_node;
+}
 
 int path_join(const char* root, const char* path, char** out) {
 
@@ -117,94 +156,153 @@ int path_split(const char* path, char** parent, char** name) {
 mz_bool compression_callback(const void* data, int len, void *user)
 {
     int i;
+    char oct_buf_tmp[5];
     const char* buffer = (const char*) data;
     compression_data* env = (compression_data*) user;
-    int l = env->total;
+    size_t l = env->total;
+    size_t offset = 0;
+
+    buffer_node *cur_node = env->out;
+
+    cur_node->buffer = calloc(len * (2 + 4 + 2), sizeof(char)); // 2 for '\n\"', 4 for octal, 2 for '\"'
 
     for (i = 0; i < len; i++)
     {
-        if (env->line == 0)
-        {
-            fprintf(env->out, "\n\"");
+        if (env->line == 0){
+            memcpy(cur_node->buffer + offset, "\n\"", 2);
+            offset += 2;
         }
 
         if (buffer[i] < 32 || buffer[i] == '"' || buffer[i] == '\\' || buffer[i] > 126) {
-            fprintf(env->out, "\\%03o", (unsigned char)buffer[i]);
+            sprintf(oct_buf_tmp, "\\%03o", (unsigned char)buffer[i]);
+            memcpy(cur_node->buffer + offset, oct_buf_tmp, 4);
+            offset += 4;
             env->line += 4;
         } else if (i > 0 && buffer[i - 1] == '?' && buffer[i] == '?') { // Avoiding trigraph warnings
-            fprintf(env->out, "\\?");
+            memcpy(cur_node->buffer + offset, "\\?", 2);
+            offset += 2;
             env->line += 2;
         } else {
-            fprintf(env->out, "%c", buffer[i]);
+            cur_node->buffer[offset++] = buffer[i];
             env->line++;
         }
 
         if (l > 0 && ((i + l + 1) % STRING_LENGTH == 0)) {
-            fprintf(env->out, "\",");
+            memcpy(cur_node->buffer + offset, "\",", 2);
+            offset += 2;
             env->line = 0;
         } else if (env->line >= LINE_WIDTH) {
-            fprintf(env->out, "\"");
+            memcpy(cur_node->buffer + offset++, "\"", 1);
             env->line = 0;
         }
-
     }
 
+    cur_node->size = offset;
     env->total += len;
     return 1;
 }
 
-resource_data generate_resource(const char* filename, FILE* out)
+static size_t generate_resource_sub_fun(FILE *res_file, buffer_node *head, compression_data *cenv, int is_compress)
 {
     tdefl_compressor compressor;
     char buffer[BUFFER_SIZE];
+    size_t length = 0;
 
+    cenv->out = head;
+    cenv->line = 0;
+    cenv->total = 0;
+
+    if(is_compress)
+        tdefl_init(&compressor, &compression_callback, cenv, TDEFL_MAX_PROBES_MASK);
+
+    buffer_node *node = head;
+    while (1) {
+        size_t n = fread (buffer, sizeof(char), BUFFER_SIZE, res_file);
+        if (n < 1) break;
+
+        node = buffer_node_append(node);
+        cenv->out = node;
+
+        if(is_compress)
+            tdefl_compress_buffer(&compressor, buffer, n, TDEFL_SYNC_FLUSH);
+        else
+            compression_callback(buffer, (int)n, cenv);
+
+        length += n;
+
+        if (n < BUFFER_SIZE) break;
+    }
+
+    if(is_compress){
+        node = buffer_node_append(node);
+        cenv->out = node;
+        tdefl_compress_buffer(&compressor, NULL, 0, TDEFL_FINISH);
+    }
+
+    return length;
+}
+
+resource_data generate_resource(const char* filename, FILE* out)
+{
     resource_data result;
     compression_data cenv;
     FILE* fp = fopen(filename, "rb");
-    size_t length = 0;
+    size_t length;
+    char postfix[5] = {0};
 
-    if (!fp)
-    {
+    buffer_node *buf_head = buffer_node_head_create();
+
+    if (!fp) {
+        buffer_node_destroy(buf_head);
         result.inflated = -1;
         result.deflated = -1;
         return result;
     }
 
-    cenv.out = out;
-    cenv.line = 0;
-    cenv.total = 0;
+    length = generate_resource_sub_fun(fp, buf_head, &cenv, 1);
 
-    tdefl_init(&compressor, &compression_callback, &cenv, TDEFL_MAX_PROBES_MASK);
-
-    while (1) {
-        size_t n = fread (buffer, sizeof(char), BUFFER_SIZE, fp);
-
-        if (n < 1) break;
-
-        tdefl_compress_buffer(&compressor, buffer, n, TDEFL_SYNC_FLUSH);
-
-        length += n;
-
-        if (n < BUFFER_SIZE) {
-            break;
+    if (length == 0) {
+        result.metadata = 0;
+    }
+    else if (length <= cenv.total + SIZE_THRESHOLD) {
+        buffer_node_destroy(buf_head);
+        buf_head = buffer_node_head_create();
+        fseek(fp, 0, SEEK_SET);
+        length = generate_resource_sub_fun(fp, buf_head, &cenv, 0);
+        if(length != cenv.total) {
+            printf("Error: original size mismatch. (total: %zu, length: %zu)\n", cenv.total, length);
+            buffer_node_destroy(buf_head);
+            fclose(fp);
+            result.inflated = -1;
+            result.deflated = -1;
+            return result;
         }
 
+        result.metadata = 0;
+    }
+    else {
+        result.metadata = 1;
     }
 
-    tdefl_compress_buffer(&compressor, NULL, 0, TDEFL_FINISH);
-
-    if (cenv.line < LINE_WIDTH && cenv.line != 0) {
-        fprintf(out, "\"");
-    }
-
-    if ((cenv.total) % STRING_LENGTH != 0)
-        fprintf(out, ",\n");
-
-    fclose(fp);
-
-    result.metadata = 1;
     result.inflated = length;
     result.deflated = cenv.total;
+
+    if(cenv.line < LINE_WIDTH && cenv.line != 0)
+        sprintf(postfix, "\"");
+
+    if ((cenv.total) % STRING_LENGTH != 0)
+        sprintf(postfix, "%s,\n", postfix);
+
+    buffer_node *node = buf_head->next;
+    while (node != buf_head) {
+        fwrite(node->buffer, sizeof(char), node->size, out);
+        node = node->next;
+    }
+
+    fwrite(postfix, sizeof(char), strlen(postfix), out);
+
+    buffer_node_destroy(buf_head);
+    fclose(fp);
     return result;
 }
 
@@ -275,16 +373,16 @@ int write_file(const char* source, data_callback callback, void* user)
 int help()
 {
 
-    fprintf(stderr, "rescue - A cross-platform resource compiler.\n\n");
-    fprintf(stderr, "Usage: rescue [-h] [-v] [-o <path>] [-a] [-b] [-r <path>] [-p <prefix>] <file1> ...\n");
-    fprintf(stderr, " -h\t\tPrint help.\n");
-    fprintf(stderr, " -v\t\tBe verbose.\n");
-    fprintf(stderr, " -o <path>\tOutput the resulting C source to the given file instead of printing it to standard output.\n\t\tThis flag can only be used before any source file is provided.\n");
-    fprintf(stderr, " -r <path>\tSet the root directory for the following files.\n\t\tThe embedded names of the files will be relative to this path.\n");
-    fprintf(stderr, " -a\t\tSet the naming mode of the files to absolute name.\n\t\tThe embedded names of the files will include the full absolute name of the file.\n");
-    fprintf(stderr, " -b\t\tSet the naming mode of the files to file basename.\n\t\tThe embedded names of the files will include only the basename of the file.\n");
-    fprintf(stderr, " -p <prefix>\tUse the following alphanumerical string as a prefix for the functions and\n\t\tvariables in the generated file (instead of `rescue`).\n\t\tThis flag can only be used before any source file is provided.\n");
-    fprintf(stderr, "\n");
+    fprintf(stdout, "rescue - A cross-platform resource compiler.\n\n");
+    fprintf(stdout, "Usage: rescue [-h] [-v] [-o <path>] [-a] [-b] [-r <path>] [-p <prefix>] <file1> ...\n");
+    fprintf(stdout, " -h\t\tPrint help.\n");
+    fprintf(stdout, " -v\t\tBe verbose.\n");
+    fprintf(stdout, " -o <path>\tOutput the resulting C source to the given file instead of printing it to standard output.\n\t\tThis flag can only be used before any source file is provided.\n");
+    fprintf(stdout, " -r <path>\tSet the root directory for the following files.\n\t\tThe embedded names of the files will be relative to this path.\n");
+    fprintf(stdout, " -a\t\tSet the naming mode of the files to absolute name.\n\t\tThe embedded names of the files will include the full absolute name of the file.\n");
+    fprintf(stdout, " -b\t\tSet the naming mode of the files to file basename.\n\t\tThe embedded names of the files will include only the basename of the file.\n");
+    fprintf(stdout, " -p <prefix>\tUse the following alphanumerical string as a prefix for the functions and\n\t\tvariables in the generated file (instead of `rescue`).\n\t\tThis flag can only be used before any source file is provided.\n");
+    fprintf(stdout, "\n");
     return 0;
 }
 
@@ -294,7 +392,7 @@ int help()
 
 #define MAX_IDENTIFIER 64
 
-#define VERBOSE(...) if (verbose) { fprintf(stderr, __VA_ARGS__); }
+#define VERBOSE(...) if (verbose) { fprintf(stdout, __VA_ARGS__); }
 
 int main(int argc, char** argv)
 {
@@ -528,4 +626,3 @@ int main(int argc, char** argv)
     return 0;
 
 }
-

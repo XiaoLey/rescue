@@ -1,6 +1,11 @@
-# rescue - A cross-platform resource compiler
+# rescue - A cross-platform resource compiler.
 
-Rescue is a cross-platform resource compiler for C and C++. It can be used to transform one or more static resource files into a C source file that can be compiled into your project to access the resources at runtime from memory. It also includes some basic compression based on the [miniz library](https://code.google.com/p/miniz/) to save space.
+**⭐*This resource compiler forked from [lukacu/rescue](https://github.com/lukacu/rescue).***
+
+Rescue is a cross-platform resource compiler for C and C++. It is capable of converting one or more static resource files into a C source file
+that can be compiled into your project, enabling you to access these resources directly from memory during runtime. The compiler also includes a
+rudimentary compression capability, provided by the [miniz library](https://code.google.com/p/miniz/) library, which judiciously selects whether
+to compress resources based on their inherent properties, thereby optimizing the use of space.
 
 ## Compiling
 
