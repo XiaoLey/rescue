@@ -57,7 +57,7 @@ static int __RESCUE_inflate_resource(int i, rescue_data_callback callback, void 
     int segment = 0;
     const char** pIn_bufs = __RESCUE_resource_data[i];
     tinfl_decompressor decomp;
-    mz_uint8 *pDict = (mz_uint8*)MZ_MALLOC(__RESCUE_CHUNK_SIZE); size_t dict_ofs = 0;
+    mz_uint8 *pDict = (mz_uint8*)__RESCUE_MALLOC(__RESCUE_CHUNK_SIZE); size_t dict_ofs = 0;
     size_t pIn_buf_size;
     if (!pDict)
         return 0;
@@ -107,7 +107,7 @@ static int __RESCUE_inflate_resource(int i, rescue_data_callback callback, void 
         if (result != 3)
             break;
     }
-    MZ_FREE(pDict);
+    __RESCUE_FREE(pDict);
 
     return result;
 }
@@ -156,7 +156,7 @@ int __RESCUE_copy_resource(const char* name, char** buffer, size_t* size)
         {
             rescue_copy_state state;
             *size = __RESCUE_resource_length_inflated[i];
-            *buffer = (char*)MZ_MALLOC(sizeof(char) * (*size));
+            *buffer = (char*)__RESCUE_MALLOC(sizeof(char) * (*size));
             state.buffer = *buffer;
             state.position = 0;
             state.size = *size;

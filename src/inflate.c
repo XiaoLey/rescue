@@ -1,4 +1,3 @@
-
 #if !defined(__RESCUE_header_only) && !defined(RESCUE_UNIVERSAL_DEFINED_)
 #define RESCUE_UNIVERSAL_DEFINED_
 #include <stdlib.h>
@@ -48,9 +47,6 @@ typedef unsigned int mz_uint;
 typedef long long mz_int64;
 typedef unsigned long long mz_uint64;
 typedef int mz_bool;
-
-#define MZ_FALSE (0)
-#define MZ_TRUE (1)
 
 // An attempt to work around MSVC's spammy "warning C4127: conditional expression is constant" message.
 #ifdef _MSC_VER
@@ -140,13 +136,10 @@ typedef unsigned char mz_validate_uint32[sizeof(mz_uint32)==4 ? 1 : -1];
 typedef unsigned char mz_validate_uint64[sizeof(mz_uint64)==8 ? 1 : -1];
 
 #include <string.h>
-#include <assert.h>
 
-#define MZ_ASSERT(x) assert(x)
-
-#define MZ_MALLOC(x) malloc(x)
-#define MZ_FREE(x) free(x)
-#define MZ_REALLOC(p, x) realloc(p, x)
+#define __RESCUE_MALLOC(x) malloc(x)
+#define __RESCUE_FREE(x) free(x)
+#define __RESCUE_REALLOC(p, x) realloc(p, x)
 
 #define MZ_MAX(a,b) (((a)>(b))?(a):(b))
 #define MZ_MIN(a,b) (((a)<(b))?(a):(b))
